@@ -32,5 +32,5 @@ Upload the module and install it.
 ![Screenshot (31)](https://github.com/user-attachments/assets/655e33c3-8e8a-4daa-927e-f06159f5a170)
 
 
-Once installed, navigate to Modules & Services and configure the Hyperswitch module.
+Once installed, configure the Hyperswitch module.
 Enter your Hyperswitch API credentials and get started.
