@@ -1,0 +1,7 @@
+<module>
+    <name>hyperswitch</name>
+    <displayname>Hyperswitch Payment Module</displayname>
+    <version>1.0.0</version>
+    <author>Sanya Kapoor</author>
+    <description>Payment module for Hyperswitch</description>
+</module>

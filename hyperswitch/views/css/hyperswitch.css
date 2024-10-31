@@ -1,0 +1,86 @@
+/* Payment form container */
+.hyperswitch-payment-container {
+    padding: 20px;
+    margin: 15px 0;
+    border: 1px solid #d6d4d4;
+    border-radius: 4px;
+    background: #fff;
+}
+
+/* Payment method options */
+.payment-method-option {
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.payment-method-option:hover {
+    background-color: #f8f9fa;
+    border-color: #ddd;
+}
+
+.payment-method-option input[type="radio"] {
+    margin-right: 10px;
+}
+
+.payment-method-option label {
+    display: inline-block;
+    margin-bottom: 0;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+/* Submit button */
+#payment-form button[type="submit"] {
+    display: block;
+    width: 100%;
+    padding: 12px 20px;
+    margin-top: 20px;
+    background-color: #2fb5d2;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+#payment-form button[type="submit"]:hover {
+    background-color: #2592a9;
+}
+
+#payment-form button[type="submit"]:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+/* Error messages */
+#payment-errors {
+    display: none;
+    margin: 10px 0;
+    padding: 10px 15px;
+    background-color: #fff3f3;
+    border: 1px solid #ff9999;
+    border-radius: 4px;
+    color: #dc3545;
+}
+
+/* Loading state */
+.hyperswitch-loading {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .hyperswitch-payment-container {
+        padding: 15px;
+    }
+
+    .payment-method-option {
+        padding: 8px;
+    }
+}
