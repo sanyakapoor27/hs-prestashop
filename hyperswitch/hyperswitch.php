@@ -9,6 +9,7 @@ class hyperswitch extends PaymentModule{
     const HYPERSWITCH_MERCHANT_ID = 'HYPERSWITCH_MERCHANT_ID';
     const HYPERSWITCH_TEST_MODE = 'HYPERSWITCH_TEST_MODE';
     const HYPERSWITCH_PAYMENT_METHODS = 'HYPERSWITCH_PAYMENT_METHODS';
+    const HYPERSWITCH_ENABLE_WEBHOOK = 'HYPERSWITCH_ENABLE_WEBHOOK';
     const HYPERSWITCH_WEBHOOK_WAIT_TIME = 'HYPERSWITCH_WEBHOOK_WAIT_TIME';
     
 
@@ -73,10 +74,7 @@ class hyperswitch extends PaymentModule{
         //register hooks
         if (!$this->registerHook('paymentOptions') ||
             !$this->registerHook('paymentReturn') ||
-            !$this->registerHook('orderConfirmation') ||
-            !$this->registerHook('displayAdminOrderMainBottom') ||
-            !$this->registerHook('actionOrderStatusUpdate') ||
-            !$this->registerHook('displayPaymentTop')) {
+            !$this->registerHook('orderConfirmation')) {
             return false;
         }
         return true;
@@ -90,7 +88,7 @@ class hyperswitch extends PaymentModule{
         Configuration::deleteByName('HYPERSWITCH_MERCHANT_ID');
         Configuration::deleteByName('HYPERSWITCH_TEST_MODE');
         Configuration::deleteByName('HYPERSWITCH_PAYMENT_METHODS');
-        Configuration::deleteByName('HYPERSWITCH_WEBHOOK_WAIT_TIME');
+        Configuration::deleteByName('HYPERSWITCH_ENABLE_WEBHOOK');
 
         $db = \Db::getInstance();
 
@@ -171,7 +169,7 @@ class hyperswitch extends PaymentModule{
                         'label' => $this->l('No')
                     )
                 ),
-                'desc' => $this->l('Use test mode for development and testing')
+                'desc' => $this->l('Use sandbox mode for development and testing')
             ),
             array(
                 'type' => 'text',
@@ -206,7 +204,7 @@ class hyperswitch extends PaymentModule{
                 'type' => 'text',
                 'label' => $this->l('Webhook Secret'),
                 'name' => 'HYPERSWITCH_WEBHOOK_SECRET',
-                'desc' => $this->l('Secret key for webhook verification')
+                'desc' => $this->l('Your Hyperswitch Payment Response Hash Key')
             )
         ),
         'submit' => array(
@@ -280,37 +278,66 @@ class hyperswitch extends PaymentModule{
         }
     
         $payment = $payments[0];
-        $paymentId = $payment->transaction_id; // Hyperswitch payment_id
+        $paymentId = $payment->payment_id; // Hyperswitch payment_id
     
         try {
             // Get the Hyperswitch API instance
             $hyperswitchApi = $this->getHyperswitchApiInstance();
-            
+            $apiKey = $hyperswitchApi['apiKey'];
+            $baseUrl = $hyperswitchApi['baseUrl'];
+    
             // Prepare the update data
             $updateData = [
                 'metadata' => [
                     'prestashop_order_id' => (string)$order->id,
                     'prestashop_cart_id' => (string)$order->id_cart,
-                    'prestashop_reference' => $order->reference
-                ]
+                    'prestashop_reference' => $order->reference,
+                ],
             ];
     
-            // Make API call to update payment
-            $headers = [
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json'
-            ];
+            // Make the cURL request to update the payment
+            $url = $baseUrl . '/payments/' . $paymentId;
+            $ch = curl_init($url);
     
-            // Use array access for the API call
-            $response = $hyperswitchApi['payments']['update']([
-                'payment_id' => $paymentId,
-                'data' => $updateData,
-                'headers' => $headers
+            // Set cURL options
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'api-key: ' . $apiKey
             ]);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($updateData));
     
-            // Verify the update was successful
-            if ($response && isset($response['status']) && $response['status'] === 'succeeded') {
-                // Add success log
+            // Execute the cURL request and get the response
+            $response = curl_exec($ch);
+    
+            // Check if there was an error during the cURL request
+            if (curl_errno($ch)) {
+                $curlError = curl_error($ch);
+                PrestaShopLogger::addLog("cURL Error: " . $curlError, 3);
+                curl_close($ch);
+                throw new Exception("cURL Error: " . $curlError);
+            }
+    
+            // Close the cURL handle
+            curl_close($ch);
+    
+            // Decode the JSON response
+            $responseArray = json_decode($response, true);
+    
+            // Check for JSON decoding errors
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $jsonError = json_last_error_msg();
+                PrestaShopLogger::addLog("JSON Decode Error: " . $jsonError, 3);
+                throw new Exception('JSON Decode Error: ' . $jsonError);
+            }
+    
+            // Log the decoded JSON response for debugging
+            PrestaShopLogger::addLog("Decoded JSON Response: " . print_r($responseArray, true), 1);
+    
+            // Verify the payment update was successful
+            if ($responseArray && isset($responseArray['status']) && $responseArray['status'] === 'succeeded') {
                 PrestaShopLogger::addLog(
                     sprintf('Hyperswitch payment %s successfully updated with order details', $paymentId),
                     1, // Info level
@@ -320,14 +347,15 @@ class hyperswitch extends PaymentModule{
                     true
                 );
     
-                // Return payment confirmation message
+                // Return a confirmation message to the customer
                 return $this->displayConfirmation(
                     $this->l('Payment successful') . 
-                    '<br>Payment ID: <code>' . $paymentId . '</code>' .
-                    '<br>Status: ' . $response['status']
+                    '<br>Payment ID: <code>' . $paymentId . '</code>' . 
+                    '<br>Status: ' . $responseArray['status']
                 );
             }
     
+            // If the status is not 'succeeded', throw an error
             throw new Exception('Payment update failed: Invalid response from Hyperswitch');
     
         } catch (Exception $e) {
@@ -341,15 +369,14 @@ class hyperswitch extends PaymentModule{
                 true
             );
     
-            // Return basic confirmation without showing the error to customer
+            // Return a basic confirmation message without showing the error to the customer
             return $this->displayConfirmation(
-                $this->l('Payment successful') . 
+                $this->l('Payment successful!') . 
                 '<br>Payment ID: <code>' . $paymentId . '</code>'
             );
         }
     }
-
-    private function _postValidation(){
+        private function _postValidation(){
         //**validate config form values*/
 
         if (Tools::isSubmit('submit' . $this->name)) {
@@ -358,7 +385,7 @@ class hyperswitch extends PaymentModule{
                 $this->_postErrors[] = $this->l('API Key is required.');
             }
 
-            //validate Merchant ID
+            //validate Merchant ID & publishable key
             if (!Tools::getValue('HYPERSWITCH_MERCHANT_ID')) {
                 $this->_postErrors[] = $this->l('Merchant ID is required.');
             }
@@ -408,6 +435,10 @@ class hyperswitch extends PaymentModule{
                 'HYPERSWITCH_TEST_MODE',
                 Tools::getValue('HYPERSWITCH_TEST_MODE')
             );
+            Configuration::updateValue(
+                'HYPERSWITCH_ENABLE_WEBHOOK',
+                true
+            );
 
             $webhookWaitTime = Tools::getValue('HYPERSWITCH_WEBHOOK_WAIT_TIME') ? Tools::getValue('WEBHOOK_WAIT_TIME') : 300;
             Configuration::updateValue(
@@ -445,15 +476,27 @@ class hyperswitch extends PaymentModule{
             $webhookSecret = Configuration::get('HYPERSWITCH_WEBHOOK_SECRET') ? Configuration::get('HYPERSWITCH_WEBHOOK_SECRET'): $this->createWebhookSecret();
 
             $events = [
-                'payment.succeeded',
-                'payment.failed',
-                'payment.cancelled',
-                'refund.succeeded',
-                'refund.failed'
+                'payment_succeeded',
+                'payment_failed',
+                'payment_cancelled',
+                'refund_succeeded',
+                'refund_failed'
             ];
 
-            // Check if webhook already exists
+            $domain = parse_url($webhookUrl, PHP_URL_HOST);
+            $domain_ip = gethostbyname($domain);
+
+            if (!filter_var($domain_ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE))
+            {   //check if ip is valid
+                Configuration::updateValue('HYPERSWITCH_ENABLE_WEBHOOK', 'off');
+                Logger::addLog('Could not enable webhook for localhost', 3);
+    
+                return;
+            }
+
+            //checking if webhook already exists
             $existingWebhooks = $this->webhookAPI('GET', 'webhooks');
+            
             foreach ($existingWebhooks['data'] as $webhook) {
                 if ($webhook['url'] === $webhookUrl) {
                     // Update existing webhook
@@ -468,7 +511,7 @@ class hyperswitch extends PaymentModule{
             }
 
             // Create new webhook
-            $response = $this->webhookAPI('POST', 'webhooks', [
+            $response = $this->webhookAPI('POST', 'webhooks/', [
                 'url' => $webhookUrl,
                 'events' => $events,
                 'active' => true,
@@ -623,8 +666,8 @@ class hyperswitch extends PaymentModule{
             $mode = Configuration::get('HYPERSWITCH_TEST_MODE');
             
             $baseUrl = $mode === 'live'
-                ? 'https://api.hyperswitch.io/'
-                : 'https://sandbox.hyperswitch.io/';
+                ? 'https://api.hyperswitch.io'
+                : 'https://sandbox.hyperswitch.io';
 
             $this->hyperswitchApiInstance = [
                 'apiKey' => $apiKey,
@@ -633,5 +676,34 @@ class hyperswitch extends PaymentModule{
         }
 
         return $this->hyperswitchApiInstance;
+    }
+    public function getPaymentIntent($payment_id) {
+        $apiKey = Configuration::get('HYPERSWITCH_API_KEY');
+        $mode = Configuration::get('HYPERSWITCH_TEST_MODE');
+        
+        $baseUrl = $mode === 'live' 
+            ? 'https://api.hyperswitch.io'
+            : 'https://sandbox.hyperswitch.io';
+    
+        $url = $this->$baseUrl . "/payments" . $payment_id;
+    
+        $headers = array(
+            'http' => array(
+                'method'  => 'GET',
+                'header'  => "Content-Type: application/json\r\n" .
+                             "api-key: " . $apiKey . "\r\n",
+                'timeout' => 45
+            )
+        );
+    
+        //stream context for the HTTP request
+        $context = stream_context_create($headers);
+    
+        $response = @file_get_contents($url, false, $context);
+    
+        if ($response === false) {
+            return array('error' => 'Failed to retrieve payment intent.');
+        }
+        return Tools::jsonDecode($response, true);
     }
 }
